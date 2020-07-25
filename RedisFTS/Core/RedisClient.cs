@@ -18,6 +18,11 @@ namespace RedisFTS.Core
             Configuration = configuration;
         }
 
+        public IDatabase GetDatabase()
+        {
+            return connection.GetDatabase();
+        }
+
         public async Task Connect()
         {
             var redisConfig = Configuration.GetValue<string>("RedisConfiguration");
@@ -112,6 +117,47 @@ namespace RedisFTS.Core
             }
 
             return result;
+        }
+
+        public async Task Add(string key, string value, double weight)
+        {
+            var db = connection.GetDatabase();
+
+            RedisKey rKey = value;
+
+            await db.SortedSetAddAsync(rKey, key, weight);
+        }
+        public async Task<IEnumerable<string>> Get(string key)
+        {
+            var db = connection.GetDatabase();
+
+            RedisKey rKey = key;
+
+            var members = db.SortedSetScan(rKey);
+
+            return members
+                .Select(v => $"{v.Element} - {v.Score.ToString()}");
+        }
+
+        public async Task<IEnumerable<SortedSetEntry>> GetRange(string[] keys, int limit = 5)
+        {
+            var db = connection.GetDatabase();
+
+            var destinationKey = Guid.NewGuid().ToString();
+
+            var rKeys = keys.Select(k => (RedisKey) k).ToArray();
+
+            // Create the results
+            db.SortedSetCombineAndStore(SetOperation.Union, destinationKey, rKeys);
+
+            // Extract the results
+            var results = await db.SortedSetRangeByScoreWithScoresAsync(destinationKey, 0, limit - 1);
+
+            // Delete the results from Redis
+            await db.KeyDeleteAsync(destinationKey);
+            //await db.SortedSetRemoveRangeByScoreAsync(destinationKey, 0, limit);
+
+            return results;
         }
     }
 }
